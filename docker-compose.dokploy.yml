@@ -5,24 +5,10 @@
 # HOW TO USE WITH DOKPLOY:
 # 1. Create a new Compose app in Dokploy, paste this file as docker-compose.yml
 # 2. Add the DOMAIN variable in the Environment tab (e.g. DOMAIN=postiz.example.com)
-# 3. Copy the dynamicconfig/ directory into Dokploy via Advanced → Mounts:
-#      Mount Path: /etc/temporal/config/dynamicconfig
-#      Content:    the development-sql.yaml from the postiz-docker-compose repo
-#    OR: run the one-time seed script below after first deploy.
-# 4. Deploy
+# 3. Add a JWT_SECRET (e.g. output of: openssl rand -hex 32)
+# 4. Deploy — the temporal-dynamicconfig-init service seeds the config automatically
 #
-# ONE-TIME dynamicconfig SEED (if not using File Mounts):
-#   podman run --rm -v postiz_temporal-dynamicconfig:/data alpine sh -c \
-#     "cat > /data/development-sql.yaml << 'EOF'
-#   limit.maxIDLength:
-#     - value: 255
-#       constraints: {}
-#   system.forceSearchAttributesCacheRefreshOnRead:
-#     - value: true
-#       constraints: {}
-#   EOF"
-#
-# DNS: Point an A record for postiz.yourdomain.com and temporal.yourdomain.com
+# DNS: Point A records for postiz.yourdomain.com and temporal.yourdomain.com
 #      to your Dokploy server IP.
 # =============================================================================
 
@@ -208,12 +194,40 @@ services:
     volumes:
       - temporal-postgres-data:/var/lib/postgresql/data
 
+  # ── Seeds the dynamicconfig volume (runs once, then exits) ──────────────
+  temporal-dynamicconfig-init:
+    image: alpine:3.20
+    volumes:
+      - temporal-dynamicconfig:/data
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /data/development-sql.yaml ]; then
+          echo "Seeding temporal dynamicconfig..."
+          cat > /data/development-sql.yaml << 'YAMLEOF'
+        limit.maxIDLength:
+          - value: 255
+            constraints: {}
+        system.forceSearchAttributesCacheRefreshOnRead:
+          - value: true
+            constraints: {}
+        YAMLEOF
+          echo "Done."
+        else
+          echo "Dynamic config already exists, skipping."
+        fi
+    networks:
+      - temporal-network
+
   temporal:
     image: temporalio/auto-setup:1.28.1
     restart: always
     expose:
       - 7233
     depends_on:
+      temporal-dynamicconfig-init:
+        condition: service_completed_successfully
       temporal-postgresql:
         condition: service_healthy
       temporal-elasticsearch:

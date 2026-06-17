@@ -58,50 +58,16 @@ See [`.env.dokploy.example`](.env.dokploy.example) for the full list.
 
 ---
 
-## Step 3 — Seed the Dynamic Config Volume (one-time)
+## Step 3 — Deploy (no manual seed needed)
 
-Temporal needs a configuration file. Since Dokploy doesn't persist files from the
-repository across re-deploys, we use a named volume that must be seeded once.
+The `temporal-dynamicconfig-init` service runs once at startup and automatically
+creates the required Temporal configuration file in the named volume. No manual
+intervention is needed.
 
-### Option A — Via Dokploy terminal (easiest)
-
-After the first deploy has started (even if Temporal fails), open a terminal on
-your Dokploy server and run:
-
-```bash
-docker run --rm \
-  -v postiz_temporal-dynamicconfig:/data \
-  alpine sh -c "cat > /data/development-sql.yaml << 'EOF'
-limit.maxIDLength:
-  - value: 255
-    constraints: {}
-system.forceSearchAttributesCacheRefreshOnRead:
-  - value: true
-    constraints: {}
-EOF"
-```
-
-Then click **Redeploy** in Dokploy.
-
-### Option B — Via Dokploy File Mounts (persistent)
-
-1. Go to **Advanced** → **Mounts** in your Dokploy app
-2. Add a mount:
-   - **Mount Path**: `/etc/temporal/config/dynamicconfig`
-   - **Content**:
-     ```yaml
-     limit.maxIDLength:
-       - value: 255
-         constraints: {}
-     system.forceSearchAttributesCacheRefreshOnRead:
-       - value: true
-         constraints: {}
-     ```
-3. Save and deploy
-
-This method is persistent and survives re-clones. If you use this, remove the
-`temporal-dynamicconfig` volume from the compose file and the `volumes:` entry
-on the `temporal` service to avoid conflicts.
+> **How it works**: An Alpine init container checks if `/data/development-sql.yaml`
+> exists. If not, it writes the file. The `temporal` service waits for this init
+> container to complete successfully before starting. The config persists in the
+> named volume across restarts.
 
 ---
 
